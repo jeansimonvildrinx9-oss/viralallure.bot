@@ -147,9 +147,50 @@ Rules:
 }
 
 app.get("/", (req, res) => {
-  res.json({
-    status: "Bot actif",
-  });
+  // Inject Vercel Speed Insights for performance monitoring
+  res.send(`
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Viral Allure Bot</title>
+  <script>
+    window.si = window.si || function () { (window.siq = window.siq || []).push(arguments); };
+  </script>
+  <script defer src="/_vercel/speed-insights/script.js"></script>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+    }
+    .container {
+      text-align: center;
+      padding: 2rem;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 12px;
+      backdrop-filter: blur(10px);
+    }
+    h1 { margin: 0 0 1rem 0; font-size: 2.5rem; }
+    .status { font-size: 1.2rem; opacity: 0.9; }
+    .emoji { font-size: 3rem; margin-bottom: 1rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="emoji">🔥</div>
+    <h1>Viral Allure Bot</h1>
+    <p class="status">✅ Bot actif</p>
+  </div>
+</body>
+</html>
+  `);
 });
 
 // chak 10 minit scan ansyen comments
