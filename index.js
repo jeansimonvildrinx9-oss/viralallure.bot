@@ -1,152 +1,159 @@
-const express = require('express');
-const axios = require('axios');
-const crypto = require('crypto');
+const express = require("express");
+const axios = require("axios");
+
 const app = express();
 
-// ============================================
-// KONFIGIRASYON — METE KLE OU YO ICI
-// ============================================
 const CONFIG = {
-  APP_SECRET: 'METE_APP_SECRET_OU_ICI',
-  PAGE_ACCESS_TOKEN: 'METE_PAGE_ACCESS_TOKEN_OU_ICI',
-  VERIFY_TOKEN: 'viral_allure_webhook_2026',
-  GROQ_API_KEY: 'METE_GROQ_API_KEY_OU_ICI',
-  PORT: process.env.PORT || 3000
+  APP_SECRET: process.env.APP_SECRET,
+  PAGE_ACCESS_TOKEN: process.env.PAGE_ACCESS_TOKEN,
+  VERIFY_TOKEN: process.env.VERIFY_TOKEN || "viral_allure_webhook_2026",
+  GROQ_API_KEY: process.env.GROQ_API_KEY,
+  PAGE_ID: process.env.PAGE_ID,
+  PORT: process.env.PORT || 3000,
 };
 
-app.use(express.json({
-  verify: (req, res, buf) => { req.rawBody = buf; }
-}));
+const repliedComments = new Set();
 
-// ============================================
-// WEBHOOK VERIFICATION
-// ============================================
-app.get('/webhook', (req, res) => {
-  const mode = req.query['hub.mode'];
-  const token = req.query['hub.verify_token'];
-  const challenge = req.query['hub.challenge'];
+app.use(express.json());
 
-  if (mode === 'subscribe' && token === CONFIG.VERIFY_TOKEN) {
-    console.log('✅ Webhook verifye avèk siksè!');
-    res.status(200).send(challenge);
-  } else {
-    res.sendStatus(403);
+// WEBHOOK VERIFY
+app.get("/webhook", (req, res) => {
+  const mode = req.query["hub.mode"];
+  const token = req.query["hub.verify_token"];
+  const challenge = req.query["hub.challenge"];
+
+  if (mode === "subscribe" && token === CONFIG.VERIFY_TOKEN) {
+    return res.status(200).send(challenge);
   }
+
+  return res.sendStatus(403);
 });
 
-// ============================================
-// RECEVOIR KÒMANTÈ YO
-// ============================================
-app.post('/webhook', async (req, res) => {
+// NOUVO COMMENTS
+app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
 
   const body = req.body;
-  if (body.object !== 'page') return;
+  if (body.object !== "page") return;
 
-  for (const entry of body.entry) {
-    const changes = entry.changes || [];
-    for (const change of changes) {
-      if (change.field === 'feed' && change.value.item === 'comment') {
+  for (const entry of body.entry || []) {
+    for (const change of entry.changes || []) {
+      if (change.field === "feed" && change.value?.item === "comment") {
         const comment = change.value;
-        
-        // Pa reponn kòmantè nou yo menm
-        if (comment.from && comment.from.id === entry.id) continue;
-        
-        console.log(`💬 Nouvo kòmantè: ${comment.message}`);
-        
-        // Jenere repons ak Groq AI
-        const reply = await generateReply(comment.message);
-        
-        // Voye repons la
-        if (reply && comment.comment_id) {
-          await postReply(comment.comment_id, reply);
-        }
+
+        if (!comment.comment_id) continue;
+        if (repliedComments.has(comment.comment_id)) continue;
+
+        await replyToComment(comment.comment_id, comment.message || "");
       }
     }
   }
 });
 
-// ============================================
-// GROQ AI — JENERE REPONS
-// ============================================
-async function generateReply(commentText) {
+// SCAN ANSYEN COMMENTS
+async function scanOldComments() {
   try {
-    const response = await axios.post(
-      'https://api.groq.com/openai/v1/chat/completions',
-      {
-        model: 'llama3-8b-8192',
-        messages: [
-          {
-            role: 'system',
-            content: `You are a warm social media manager for "Viral Allure" — a Facebook page with 211K followers creating powerful AI videos about veterans protesting war, massive crowds chanting for peace, government hearing disruptions, freedom and humanity messages, and stadium unity moments.
+    if (!CONFIG.PAGE_ID) return;
 
-Reply to Facebook comments following these rules:
-- Maximum 2-3 lines only
-- Very warm, loving, emotional tone ❤️
-- End with ONE engaging question to bring them back
-- Use 1-2 emojis maximum
-- Never sound robotic
-- Vary your responses every time
-- Match the language of the comment (French→French, English→English, Spanish→Spanish)
-- Never mention you are AI`
-          },
-          {
-            role: 'user',
-            content: `Reply to this Facebook comment: "${commentText}"`
-          }
-        ],
-        max_tokens: 150,
-        temperature: 0.9
-      },
+    const posts = await axios.get(
+      `https://graph.facebook.com/v25.0/${CONFIG.PAGE_ID}/posts`,
       {
-        headers: {
-          'Authorization': `Bearer ${CONFIG.GROQ_API_KEY}`,
-          'Content-Type': 'application/json'
-        }
+        params: {
+          access_token: CONFIG.PAGE_ACCESS_TOKEN,
+          limit: 30,
+        },
       }
     );
 
-    const reply = response.data.choices[0].message.content;
-    console.log(`🤖 Repons jenere: ${reply}`);
-    return reply;
+    for (const post of posts.data.data || []) {
+      const comments = await axios.get(
+        `https://graph.facebook.com/v25.0/${post.id}/comments`,
+        {
+          params: {
+            access_token: CONFIG.PAGE_ACCESS_TOKEN,
+            limit: 100,
+          },
+        }
+      );
 
-  } catch (error) {
-    console.error('❌ Groq Error:', error.response?.data || error.message);
+      for (const comment of comments.data.data || []) {
+        if (repliedComments.has(comment.id)) continue;
+
+        await replyToComment(comment.id, comment.message || "");
+      }
+    }
+  } catch (err) {
+    console.error(err.response?.data || err.message);
+  }
+}
+
+async function replyToComment(commentId, text) {
+  const reply = await generateReply(text);
+
+  if (!reply) return;
+
+  await axios.post(
+    `https://graph.facebook.com/v25.0/${commentId}/comments`,
+    { message: reply },
+    {
+      params: {
+        access_token: CONFIG.PAGE_ACCESS_TOKEN,
+      },
+    }
+  );
+
+  repliedComments.add(commentId);
+}
+
+async function generateReply(commentText) {
+  try {
+    const response = await axios.post(
+      "https://api.groq.com/openai/v1/chat/completions",
+      {
+        model: "llama3-8b-8192",
+        messages: [
+          {
+            role: "system",
+            content: `
+Reply to Facebook comments for Viral Allure.
+Rules:
+- warm
+- emotional
+- 2–3 lines max
+- end with one question
+- match comment language
+- never robotic
+- 1–2 emojis max
+`,
+          },
+          {
+            role: "user",
+            content: commentText,
+          },
+        ],
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${CONFIG.GROQ_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    return response.data.choices[0].message.content;
+  } catch {
     return null;
   }
 }
 
-// ============================================
-// VOYE REPONS SOU FACEBOOK
-// ============================================
-async function postReply(commentId, message) {
-  try {
-    await axios.post(
-      `https://graph.facebook.com/v25.0/${commentId}/comments`,
-      { message },
-      {
-        params: { access_token: CONFIG.PAGE_ACCESS_TOKEN }
-      }
-    );
-    console.log(`✅ Repons voye avèk siksè!`);
-  } catch (error) {
-    console.error('❌ Facebook Error:', error.response?.data || error.message);
-  }
-}
-
-// ============================================
-// STATUS CHECK
-// ============================================
-app.get('/', (req, res) => {
+app.get("/", (req, res) => {
   res.json({
-    status: '✅ Viral Allure Bot Aktif!',
-    message: 'Bot ap reponn kòmantè otomatikman',
-    timestamp: new Date().toISOString()
+    status: "Bot actif",
   });
 });
 
-app.listen(CONFIG.PORT, () => {
-  console.log(`🚀 Viral Allure Bot ap kouri sou pò ${CONFIG.PORT}`);
-});
+// chak 10 minit scan ansyen comments
+setInterval(scanOldComments, 10 * 60 * 1000);
 
+app.listen(CONFIG.PORT);
 module.exports = app;
