@@ -1,4 +1,5 @@
 const express = require('express');
+const axios = require('axios');
 const app = express();
 app.use(express.json());
 
@@ -15,109 +16,90 @@ const SYSTEM_PROMPT = `You are a warm, loving social media manager for "Viral Al
 Rules for responding to comments:
 - Maximum 2-3 lines only
 - Very warm, loving, emotional tone
-- Use 1-2 emojis maximum  
+- Use 1-2 emojis maximum
 - End EVERY response with ONE engaging question to bring them back
 - Never sound robotic or copy-paste
 - Vary your responses every time
 - Write in the same language as the comment (English, French, Spanish, Haitian Creole, etc.)
 - Never mention AI or that you are a bot`;
 
-// =============================================
-// GROQ AI - Jenere Repons
-// =============================================
 async function generateReply(commentText) {
   try {
-    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
+    const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
+      model: 'llama3-8b-8192',
+      messages: [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: `Comment to respond to: "${commentText}"` }
+      ],
+      max_tokens: 150,
+      temperature: 0.9
+    }, {
       headers: {
         'Authorization': `Bearer ${CONFIG.GROQ_API_KEY}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({
-        model: 'llama3-8b-8192',
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: `Comment to respond to: "${commentText}"` }
-        ],
-        max_tokens: 150,
-        temperature: 0.9
-      })
+      timeout: 10000
     });
-    const data = await response.json();
-    return data.choices[0]?.message?.content || null;
+    return response.data.choices[0]?.message?.content || null;
   } catch (error) {
-    console.error('Groq error:', error);
+    console.error('Groq error:', error.message);
     return null;
   }
 }
 
-// =============================================
-// FACEBOOK API - Voye Repons
-// =============================================
 async function replyToComment(commentId, message) {
   try {
-    const response = await fetch(`https://graph.facebook.com/v25.0/${commentId}/comments`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        message: message,
-        access_token: CONFIG.PAGE_ACCESS_TOKEN
-      })
-    });
-    const data = await response.json();
-    if (data.error) {
-      console.error('Facebook error:', data.error);
-      return false;
-    }
-    console.log(`✅ Replied to comment ${commentId}`);
+    const response = await axios.post(
+      `https://graph.facebook.com/v25.0/${commentId}/comments`,
+      { message, access_token: CONFIG.PAGE_ACCESS_TOKEN },
+      { timeout: 10000 }
+    );
+    console.log(`Replied to comment ${commentId}`);
     return true;
   } catch (error) {
-    console.error('Reply error:', error);
+    console.error('Reply error:', error.response?.data || error.message);
     return false;
   }
 }
 
-// =============================================
-// SCANNER - Jwenn tout video sou paj la
-// =============================================
 async function getAllVideos() {
   try {
-    const response = await fetch(
-      `https://graph.facebook.com/v25.0/${CONFIG.PAGE_ID}/videos?fields=id,title,created_time&limit=50&access_token=${CONFIG.PAGE_ACCESS_TOKEN}`
+    const response = await axios.get(
+      `https://graph.facebook.com/v25.0/${CONFIG.PAGE_ID}/videos`,
+      {
+        params: {
+          fields: 'id,title,created_time',
+          limit: 50,
+          access_token: CONFIG.PAGE_ACCESS_TOKEN
+        },
+        timeout: 15000
+      }
     );
-    const data = await response.json();
-    if (data.error) {
-      console.error('Videos error:', data.error);
-      return [];
-    }
-    return data.data || [];
+    return response.data.data || [];
   } catch (error) {
-    console.error('Get videos error:', error);
+    console.error('Get videos error:', error.response?.data || error.message);
     return [];
   }
 }
 
-// =============================================
-// SCANNER - Jwenn kòmantè ki poko reponn
-// =============================================
 async function getUnansweredComments(videoId) {
   try {
-    // Jwenn tout kòmantè videyo a
-    const response = await fetch(
-      `https://graph.facebook.com/v25.0/${videoId}/comments?fields=id,message,from,comments{id,from}&limit=100&access_token=${CONFIG.PAGE_ACCESS_TOKEN}`
+    const response = await axios.get(
+      `https://graph.facebook.com/v25.0/${videoId}/comments`,
+      {
+        params: {
+          fields: 'id,message,from,comments{id,from}',
+          limit: 100,
+          access_token: CONFIG.PAGE_ACCESS_TOKEN
+        },
+        timeout: 15000
+      }
     );
-    const data = await response.json();
-    if (data.error || !data.data) return [];
-
     const unanswered = [];
-    
-    for (const comment of data.data) {
-      // Tcheke si paj la deja reponn
+    for (const comment of (response.data.data || [])) {
       const hasPageReply = comment.comments?.data?.some(
         reply => reply.from?.id === CONFIG.PAGE_ID
       );
-      
-      // Si pa gen repons ak si kòmantè a gen tèks
       if (!hasPageReply && comment.message && comment.from?.id !== CONFIG.PAGE_ID) {
         unanswered.push({
           id: comment.id,
@@ -126,76 +108,43 @@ async function getUnansweredComments(videoId) {
         });
       }
     }
-    
     return unanswered;
   } catch (error) {
-    console.error('Get comments error:', error);
+    console.error('Get comments error:', error.response?.data || error.message);
     return [];
   }
 }
 
-// =============================================
-// SCANNER PRENSIPAL - Reponn tout kòmantè vye
-// =============================================
 async function scanAndReplyAll() {
-  console.log('🔍 Scanning all videos for unanswered comments...');
-  
+  console.log('Scanning all videos for unanswered comments...');
   const videos = await getAllVideos();
-  console.log(`📹 Found ${videos.length} videos`);
-  
+  console.log(`Found ${videos.length} videos`);
   let totalReplied = 0;
   let totalSkipped = 0;
-
   for (const video of videos) {
-    console.log(`\n📹 Scanning video: ${video.id}`);
-    
     const unanswered = await getUnansweredComments(video.id);
-    console.log(`💬 Found ${unanswered.length} unanswered comments`);
-
+    console.log(`Video ${video.id}: ${unanswered.length} unanswered`);
     for (const comment of unanswered) {
-      // Delay 3 segonn ant chak repons pou evite spam
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      
-      console.log(`\n💬 Comment from ${comment.from}: "${comment.message}"`);
-      
+      await new Promise(r => setTimeout(r, 3000));
       const reply = await generateReply(comment.message);
-      if (!reply) {
-        console.log('❌ Could not generate reply');
-        totalSkipped++;
-        continue;
-      }
-      
-      console.log(`📝 Reply: ${reply}`);
-      
+      if (!reply) { totalSkipped++; continue; }
       const success = await replyToComment(comment.id, reply);
-      if (success) {
-        totalReplied++;
-      } else {
-        totalSkipped++;
-      }
-
-      // Pause 10 repons — rete 1 minit pou evite rate limit
+      if (success) totalReplied++;
+      else totalSkipped++;
       if (totalReplied % 10 === 0 && totalReplied > 0) {
-        console.log('⏸️ Pausing 60 seconds to avoid rate limit...');
-        await new Promise(resolve => setTimeout(resolve, 60000));
+        await new Promise(r => setTimeout(r, 60000));
       }
     }
   }
-
-  console.log(`\n✅ Scan complete! Replied: ${totalReplied} | Skipped: ${totalSkipped}`);
+  console.log(`Scan complete! Replied: ${totalReplied} | Skipped: ${totalSkipped}`);
   return { totalReplied, totalSkipped };
 }
 
-// =============================================
-// WEBHOOK - Kòmantè Nouvo Otomatik
-// =============================================
 app.get('/webhook', (req, res) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
-  
   if (mode === 'subscribe' && token === CONFIG.VERIFY_TOKEN) {
-    console.log('✅ Webhook verified!');
     res.status(200).send(challenge);
   } else {
     res.sendStatus(403);
@@ -204,154 +153,72 @@ app.get('/webhook', (req, res) => {
 
 app.post('/webhook', async (req, res) => {
   res.sendStatus(200);
-  
   const body = req.body;
   if (body.object !== 'page') return;
-
   for (const entry of body.entry) {
     for (const change of entry.changes || []) {
       if (change.field === 'feed' && change.value.item === 'comment') {
         const comment = change.value;
-        
-        // Sèlman reponn kòmantè nouvo — pa repons paj la
         if (comment.verb === 'add' && comment.from?.id !== CONFIG.PAGE_ID) {
-          console.log(`\n🔔 New comment: "${comment.message}"`);
-          
-          // Ti delay natirèl 5-15 segonn
+          console.log(`New comment: "${comment.message}"`);
           const delay = Math.floor(Math.random() * 10000) + 5000;
-          await new Promise(resolve => setTimeout(resolve, delay));
-          
+          await new Promise(r => setTimeout(r, delay));
           const reply = await generateReply(comment.message);
-          if (reply) {
-            await replyToComment(comment.comment_id, reply);
-          }
+          if (reply) await replyToComment(comment.comment_id, reply);
         }
       }
     }
   }
 });
 
-// =============================================
-// ROUTES
-// =============================================
-
-// Health check
 app.get('/', (req, res) => {
-  res.json({ 
-    status: '🔥 ViralAllureBot is running!', 
+  res.json({
+    status: 'ViralAllureBot is running!',
     time: new Date().toISOString(),
-    features: [
-      '✅ Auto-reply new comments (webhook)',
-      '✅ Scan & reply old unanswered comments'
-    ]
+    features: ['Auto-reply new comments (webhook)', 'Scan & reply old unanswered comments']
   });
 });
 
-// Declenche scan manyèlman
 app.get('/scan', async (req, res) => {
-  // Sekirite — verifye token
   const token = req.query.token;
   if (token !== CONFIG.VERIFY_TOKEN) {
     return res.status(403).json({ error: 'Unauthorized' });
   }
-  
-  res.json({ message: '🔍 Scan started! Check server logs.' });
-  
-  // Kòmanse scan nan background
+  res.json({ message: 'Scan started! Check server logs.' });
   scanAndReplyAll().catch(console.error);
 });
 
-// Wè status
 app.get('/status', (req, res) => {
-  res.json({
-    bot: 'ViralAllureBot',
-    page: CONFIG.PAGE_ID,
-    webhook: 'active',
-    scanner: 'ready',
-    time: new Date().toISOString()
-  });
+  res.json({ bot: 'ViralAllureBot', page: CONFIG.PAGE_ID, webhook: 'active', scanner: 'ready', time: new Date().toISOString() });
+});
+
+app.get('/privacy', (req, res) => {
+  res.send(`
+Privacy Policy
+
+Last updated: June 1, 2026
+
+Viral Allure Bot only reads public comments to provide automated responses. We do not collect or share personal data.
+
+Contact: jeansimonvildrinx9@gmail.com
+
+`);
+});
+
+app.get('/terms', (req, res) => {
+  res.send(`
+Terms of Service
+
+Last updated: June 1, 2026
+
+By interacting with Viral Allure's Facebook page, you agree to these terms.
+
+Contact: jeansimonvildrinx9@gmail.com
+
+`);
 });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`
-🔥 ViralAllureBot Started!
-📡 Port: ${PORT}
-✅ Webhook: Ready for new comments
-🔍 Scanner: Ready (call /scan?token=viralallure2026)
-  `);
-});
-
-// Route Privacy Policy - pou publiye app Meta
-app.get('/privacy', (req, res) => {
-  res.send(`
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <title>Privacy Policy - Viral Allure</title>
-      <style>
-        body { font-family: Arial, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; }
-        h1 { color: #333; }
-        h2 { color: #555; }
-        p { line-height: 1.6; color: #666; }
-      </style>
-    </head>
-    <body>
-      <h1>Privacy Policy - Viral Allure Bot</h1>
-      <p>Last updated: June 1, 2026</p>
-      
-      <h2>1. Information We Collect</h2>
-      <p>Viral Allure Bot only reads public comments on the Viral Allure Facebook Page to provide automated responses. We do not collect, store, or share any personal data.</p>
-      
-      <h2>2. How We Use Information</h2>
-      <p>Comments are processed solely to generate and post relevant replies. No data is retained after processing.</p>
-      
-      <h2>3. Data Sharing</h2>
-      <p>We do not sell, trade, or share any user data with third parties.</p>
-      
-      <h2>4. Contact</h2>
-      <p>For questions about this privacy policy, contact us at: jeansimonvildrinx9@gmail.com</p>
-      
-      <h2>5. Changes</h2>
-      <p>We may update this policy at any time. Continued use of our services constitutes acceptance of the updated policy.</p>
-    </body>
-    </html>
-  `);
-});
-
-// Route Terms of Service
-app.get('/terms', (req, res) => {
-  res.send(`
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <title>Terms of Service - Viral Allure</title>
-      <style>
-        body { font-family: Arial, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; }
-        h1 { color: #333; }
-        h2 { color: #555; }
-        p { line-height: 1.6; color: #666; }
-      </style>
-    </head>
-    <body>
-      <h1>Terms of Service - Viral Allure Bot</h1>
-      <p>Last updated: June 1, 2026</p>
-      
-      <h2>1. Acceptance</h2>
-      <p>By interacting with Viral Allure's Facebook page, you agree to these terms.</p>
-      
-      <h2>2. Service Description</h2>
-      <p>Viral Allure Bot provides automated responses to public comments on the Viral Allure Facebook Page.</p>
-      
-      <h2>3. User Conduct</h2>
-      <p>Users must not post harmful, illegal, or abusive content. We reserve the right to remove inappropriate comments.</p>
-      
-      <h2>4. Limitation of Liability</h2>
-      <p>Viral Allure Bot is provided "as is" without warranties of any kind.</p>
-      
-      <h2>5. Contact</h2>
-      <p>For questions: jeansimonvildrinx9@gmail.com</p>
-    </body>
-    </html>
-  `);
+  console.log(`ViralAllureBot started on port ${PORT}`);
 });
