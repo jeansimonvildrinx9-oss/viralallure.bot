@@ -4,11 +4,12 @@ const app = express();
 app.use(express.json());
 
 const CONFIG = {
-  APP_SECRET: process.env.APP_SECRET || 'your_app_secret',
-  PAGE_ACCESS_TOKEN: process.env.PAGE_ACCESS_TOKEN || 'your_page_token',
-  VERIFY_TOKEN: process.env.VERIFY_TOKEN || 'viralallure2026',
-  GROQ_API_KEY: process.env.GROQ_API_KEY || 'your_groq_key',
-  PAGE_ID: process.env.PAGE_ID || 'your_page_id',
+  APP_SECRET: process.env.APP_SECRET,
+  PAGE_ACCESS_TOKEN: process.env.PAGE_ACCESS_TOKEN,
+  VERIFY_TOKEN: process.env.VERIFY_TOKEN || "viral_allure_webhook_2026",
+  GROQ_API_KEY: process.env.GROQ_API_KEY,
+  PAGE_ID: process.env.PAGE_ID,
+  PORT: process.env.PORT || 3000,
 };
 
 const SYSTEM_PROMPT = `You are a warm, loving social media manager for "Viral Allure" - a Facebook page with 211K followers creating AI-generated emotional videos about veterans protesting war, massive crowds chanting for peace, government hearing disruptions, freedom and humanity messages, stadium unity moments.
