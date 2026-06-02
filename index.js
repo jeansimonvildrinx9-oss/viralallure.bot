@@ -281,3 +281,77 @@ app.listen(PORT, () => {
 🔍 Scanner: Ready (call /scan?token=viralallure2026)
   `);
 });
+
+// Route Privacy Policy - pou publiye app Meta
+app.get('/privacy', (req, res) => {
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Privacy Policy - Viral Allure</title>
+      <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; }
+        h1 { color: #333; }
+        h2 { color: #555; }
+        p { line-height: 1.6; color: #666; }
+      </style>
+    </head>
+    <body>
+      <h1>Privacy Policy - Viral Allure Bot</h1>
+      <p>Last updated: June 1, 2026</p>
+      
+      <h2>1. Information We Collect</h2>
+      <p>Viral Allure Bot only reads public comments on the Viral Allure Facebook Page to provide automated responses. We do not collect, store, or share any personal data.</p>
+      
+      <h2>2. How We Use Information</h2>
+      <p>Comments are processed solely to generate and post relevant replies. No data is retained after processing.</p>
+      
+      <h2>3. Data Sharing</h2>
+      <p>We do not sell, trade, or share any user data with third parties.</p>
+      
+      <h2>4. Contact</h2>
+      <p>For questions about this privacy policy, contact us at: jeansimonvildrinx9@gmail.com</p>
+      
+      <h2>5. Changes</h2>
+      <p>We may update this policy at any time. Continued use of our services constitutes acceptance of the updated policy.</p>
+    </body>
+    </html>
+  `);
+});
+
+// Route Terms of Service
+app.get('/terms', (req, res) => {
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Terms of Service - Viral Allure</title>
+      <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; }
+        h1 { color: #333; }
+        h2 { color: #555; }
+        p { line-height: 1.6; color: #666; }
+      </style>
+    </head>
+    <body>
+      <h1>Terms of Service - Viral Allure Bot</h1>
+      <p>Last updated: June 1, 2026</p>
+      
+      <h2>1. Acceptance</h2>
+      <p>By interacting with Viral Allure's Facebook page, you agree to these terms.</p>
+      
+      <h2>2. Service Description</h2>
+      <p>Viral Allure Bot provides automated responses to public comments on the Viral Allure Facebook Page.</p>
+      
+      <h2>3. User Conduct</h2>
+      <p>Users must not post harmful, illegal, or abusive content. We reserve the right to remove inappropriate comments.</p>
+      
+      <h2>4. Limitation of Liability</h2>
+      <p>Viral Allure Bot is provided "as is" without warranties of any kind.</p>
+      
+      <h2>5. Contact</h2>
+      <p>For questions: jeansimonvildrinx9@gmail.com</p>
+    </body>
+    </html>
+  `);
+});
