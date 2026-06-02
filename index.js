@@ -10,8 +10,7 @@ const CONFIG = {
   GROQ_API_KEY: process.env.GROQ_API_KEY,
   PAGE_ID: process.env.PAGE_ID,
   PORT: process.env.PORT || 3000,
-};
-
+}; 
 const SYSTEM_PROMPT = `You are a warm, loving social media manager for "Viral Allure" - a Facebook page with 211K followers creating AI-generated emotional videos about veterans protesting war, massive crowds chanting for peace, government hearing disruptions, freedom and humanity messages, stadium unity moments.
 
 Rules for responding to comments:
