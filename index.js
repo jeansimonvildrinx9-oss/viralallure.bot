@@ -220,7 +220,37 @@ Contact: jeansimonvildrinx9@gmail.com
 
 `);
 });
+// DEBUG ROUTES
+app.get('/debug', (req, res) => {
+  res.json({
+    verifyToken: CONFIG.VERIFY_TOKEN,
+    pageId: CONFIG.PAGE_ID,
+    hasPageToken: !!CONFIG.PAGE_ACCESS_TOKEN,
+    hasGroqKey: !!CONFIG.GROQ_API_KEY
+  });
+});
 
+app.get('/webhook-test', (req, res) => {
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+
+  console.log('Webhook Test:', {
+    mode,
+    receivedToken: token,
+    configToken: CONFIG.VERIFY_TOKEN
+  });
+
+  if (mode === 'subscribe' && token === CONFIG.VERIFY_TOKEN) {
+    return res.status(200).send(challenge || 'SUCCESS');
+  }
+
+  return res.status(403).json({
+    error: 'Forbidden',
+    receivedToken: token,
+    expectedToken: CONFIG.VERIFY_TOKEN
+  });
+});
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`ViralAllureBot started on port ${PORT}`);
