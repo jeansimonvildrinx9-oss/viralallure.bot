@@ -3,10 +3,7 @@ const axios = require('axios');
 const app = express();
 app.use(express.json());
 
-axios.defaults.timeout = 10000;
-
 const CONFIG = {
-  APP_SECRET: process.env.APP_SECRET,
   PAGE_ACCESS_TOKEN: (process.env.PAGE_ACCESS_TOKEN || '').trim(),
   VERIFY_TOKEN: process.env.VERIFY_TOKEN || "viral_allure_webhook_2026",
   GROQ_API_KEY: process.env.GROQ_API_KEY,
@@ -14,52 +11,53 @@ const CONFIG = {
   PORT: process.env.PORT || 3000,
 };
 
-const SYSTEM_PROMPT = `
-You are a warm, loving social media manager for "Viral Allure".
+/* ---------------- AI ---------------- */
 
+const SYSTEM_PROMPT = `
+You are a warm social media manager for Viral Allure.
 Rules:
-- 2–3 lines max
+- 2-3 lines max
 - emotional tone
-- 1–2 emojis max
-- ALWAYS end with a question
-- same language as comment
-- never say you're AI
+- 1-2 emojis max
+- always end with a question
+- same language as user
+- never say AI or bot
 `;
 
-async function generateReply(commentText) {
+async function generateReply(text) {
   try {
-    const response = await axios.post(
+    const res = await axios.post(
       'https://api.groq.com/openai/v1/chat/completions',
       {
-        model: 'llama3-8b-8192',
+        model: "llama3-8b-8192",
         messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: commentText }
+          { role: "system", content: SYSTEM_PROMPT },
+          { role: "user", content: text }
         ],
-        max_tokens: 120,
-        temperature: 0.9
+        temperature: 0.9,
+        max_tokens: 120
       },
       {
         headers: {
           Authorization: `Bearer ${CONFIG.GROQ_API_KEY}`,
-          'Content-Type': 'application/json'
+          "Content-Type": "application/json"
         }
       }
     );
 
-    return response.data?.choices?.[0]?.message?.content || null;
+    return res.data?.choices?.[0]?.message?.content || null;
   } catch (err) {
     console.error("Groq error:", err.message);
     return null;
   }
 }
 
-/* ---------------- FACEBOOK FUNCTIONS ---------------- */
+/* ---------------- FACEBOOK REPLY ---------------- */
 
 async function replyToComment(commentId, message) {
   try {
     if (!CONFIG.PAGE_ACCESS_TOKEN) {
-      console.error("❌ Missing PAGE_ACCESS_TOKEN");
+      console.error("Missing PAGE_ACCESS_TOKEN");
       return false;
     }
 
@@ -74,7 +72,7 @@ async function replyToComment(commentId, message) {
       }
     );
 
-    console.log(`✅ Replied: ${commentId}`);
+    console.log("✅ Replied:", commentId);
     return true;
 
   } catch (err) {
@@ -83,146 +81,79 @@ async function replyToComment(commentId, message) {
   }
 }
 
-async function getAllVideos() {
-  try {
-    const res = await axios.get(
-      `https://graph.facebook.com/v25.0/${CONFIG.PAGE_ID}/videos`,
-      {
-        params: {
-          fields: 'id',
-          limit: 10,
-          access_token: CONFIG.PAGE_ACCESS_TOKEN
-        }
-      }
-    );
-
-    return res.data?.data || [];
-  } catch (err) {
-    console.error("Get videos error:", err.response?.data || err.message);
-    return [];
-  }
-}
-
-async function getUnansweredComments(videoId) {
-  try {
-    const res = await axios.get(
-      `https://graph.facebook.com/v25.0/${videoId}/comments`,
-      {
-        params: {
-          fields: 'id,message,from',
-          limit: 25,
-          access_token: CONFIG.PAGE_ACCESS_TOKEN
-        }
-      }
-    );
-
-    const comments = res.data?.data || [];
-
-    return comments.filter(c =>
-      c.message &&
-      c.from?.id !== CONFIG.PAGE_ID
-    );
-
-  } catch (err) {
-    console.error("Get comments error:", err.response?.data || err.message);
-    return [];
-  }
-}
-
-/* ---------------- SCANNER ---------------- */
-
-async function scanAndReplyAll() {
-  console.log("🚀 Starting scan...");
-
-  const token = CONFIG.PAGE_ACCESS_TOKEN;
-  if (!token) {
-    console.error("❌ No PAGE_ACCESS_TOKEN found");
-    return;
-  }
-
-  const videos = await getAllVideos();
-  console.log(`📹 Videos found: ${videos.length}`);
-
-  let replied = 0;
-  let skipped = 0;
-
-  for (const video of videos) {
-    try {
-      const comments = await getUnansweredComments(video.id);
-      console.log(`💬 Video ${video.id}: ${comments.length}`);
-
-      for (const c of comments) {
-        await new Promise(r => setTimeout(r, 2000));
-
-        const reply = await generateReply(c.message);
-        if (!reply) {
-          skipped++;
-          continue;
-        }
-
-        const ok = await replyToComment(c.id, reply);
-        ok ? replied++ : skipped++;
-
-        if (replied > 0 && replied % 8 === 0) {
-          console.log("⏸ cooling down...");
-          await new Promise(r => setTimeout(r, 50000));
-        }
-      }
-
-    } catch (e) {
-      console.error("Video error:", e.message);
-    }
-  }
-
-  console.log(`✅ DONE | Replied: ${replied} | Skipped: ${skipped}`);
-  return { replied, skipped };
-}
-
-/* ---------------- WEBHOOK ---------------- */
+/* ---------------- WEBHOOK VERIFY ---------------- */
 
 app.get('/webhook', (req, res) => {
-  if (
-    req.query['hub.mode'] === 'subscribe' &&
-    req.query['hub.verify_token'] === CONFIG.VERIFY_TOKEN
-  ) {
-    return res.send(req.query['hub.challenge']);
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+
+  if (mode === 'subscribe' && token === CONFIG.VERIFY_TOKEN) {
+    console.log("Webhook verified");
+    return res.status(200).send(challenge);
   }
-  res.sendStatus(403);
+
+  return res.sendStatus(403);
 });
+
+/* ---------------- WEBHOOK MAIN ---------------- */
 
 app.post('/webhook', async (req, res) => {
   res.sendStatus(200);
+
+  const body = req.body;
+
+  if (!body.object || body.object !== 'page') return;
+
+  for (const entry of body.entry) {
+    for (const change of entry.changes || []) {
+
+      if (change.field === 'feed') {
+        const value = change.value;
+
+        // ONLY NEW COMMENTS
+        if (value.item === 'comment' && value.verb === 'add') {
+
+          const commentText = value.message;
+          const commentId = value.comment_id;
+
+          if (!commentText || !commentId) return;
+
+          // avoid self reply
+          if (value.from?.id === CONFIG.PAGE_ID) return;
+
+          console.log("💬 New comment:", commentText);
+
+          try {
+            const reply = await generateReply(commentText);
+
+            if (!reply) return;
+
+            await new Promise(r => setTimeout(r, 4000)); // small delay
+
+            await replyToComment(commentId, reply);
+
+          } catch (e) {
+            console.error("Webhook handling error:", e.message);
+          }
+        }
+      }
+    }
+  }
 });
 
-/* ---------------- ROUTES ---------------- */
+/* ---------------- STATUS ---------------- */
 
 app.get('/', (req, res) => {
   res.json({
-    status: "ViralAllureBot running",
-    page: CONFIG.PAGE_ID
+    status: "Webhook Only Bot Running",
+    mode: "REAL-TIME",
+    time: new Date().toISOString()
   });
 });
 
-app.get('/scan', async (req, res) => {
-  if (req.query.token !== CONFIG.VERIFY_TOKEN) {
-    return res.status(403).json({ error: "Unauthorized" });
-  }
-
-  res.json({ status: "scan started" });
-
-  scanAndReplyAll().catch(console.error);
-});
-
-app.get('/status', (req, res) => {
-  res.json({
-    page: CONFIG.PAGE_ID,
-    token_ok: !!CONFIG.PAGE_ACCESS_TOKEN,
-    groq_ok: !!CONFIG.GROQ_API_KEY
-  });
-});
-
-/* ---------------- START SERVER ---------------- */
+/* ---------------- START ---------------- */
 
 app.listen(CONFIG.PORT, () => {
-  console.log(`🔥 Bot running on port ${CONFIG.PORT}`);
+  console.log("🔥 Webhook-only bot running on port", CONFIG.PORT);
 });
